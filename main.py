@@ -991,5 +991,7 @@ def calculate_intrinsic(_, curve_json, capacity, init_inv, max_inj, max_wdw, inj
         fig
     )
 
+server = app.server
+
 if __name__ == "__main__":
     app.run(debug=True, port=8050)
