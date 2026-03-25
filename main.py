@@ -322,13 +322,15 @@ with tab_strategy:
                 for leg in legs:
                     fig_strat.add_vline(x=leg["K"], line=dict(dash="dot", color="#555", width=1))
 
-                # adjust y-axis range with padding for readability
-                combined = np.concatenate([expiry_pnl, current_pnl])
-                pad = max(abs(np.max(combined) - np.min(combined)) * 0.15, 0.5)
-                fig_strat.update_layout({**PLOT_BASE, "xaxis_title": "Spot at Expiry",
-                                         "yaxis_title": "P&L", "title": "Payoff Diagram"})
-                fig_strat.update_yaxes(range=[float(np.min(combined)) - pad,
-                                              float(np.max(combined)) + pad])
+                # time value = current value minus expiry intrinsic value
+                time_value = current_pnl - expiry_pnl
+                fig_strat.add_trace(go.Scatter(x=s_range, y=time_value, name="Time Value",
+                                               line=dict(color="#ffd54f", width=1, dash="dot")))
+
+                fig_strat.update_layout(**PLOT_BASE,
+                                        xaxis_title="Spot at Expiry",
+                                        yaxis_title="P&L",
+                                        title="Payoff Diagram")
                 st.plotly_chart(fig_strat, use_container_width=True)
 
                 # Greeks curves

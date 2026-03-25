@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
-from datetime import datetime, timedelta
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 import yfinance as yf
 
 def fetch_henry_hub_curve(n_months=12):
@@ -11,7 +12,7 @@ def fetch_henry_hub_curve(n_months=12):
     - Pulling latest prices from yfinance
     - Returning a df (delivery_date, price)
     """
-    
+
     MONTH_CODES = {
         1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
         7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z",
@@ -22,16 +23,16 @@ def fetch_henry_hub_curve(n_months=12):
 
     for i in range(1, n_months + 1):
 
-        # Approximate delivery month 
-        target = today + timedelta(days=30 * i)
+        # Use proper month arithmetic to avoid day-count drift
+        target = today + relativedelta(months=i)
         month = target.month
         year = target.year
 
-        # Build futures ticker
+        # Build futures ticker (Yahoo Finance NYMEX format)
         ticker = f"NG{MONTH_CODES[month]}{str(year)[-2:]}.NYM"
 
         try:
-            data = yf.Ticker(ticker).history(period="5d")
+            data = yf.Ticker(ticker).history(period="1mo")
             if not data.empty:
                 price = float(data["Close"].iloc[-1])
 
