@@ -101,10 +101,17 @@ def build_legs(strategy, strikes, sigma_pct, T_days):
 # Layout helpers
 # ---------------------------------------------------------------------------
 
+_INPUT_STYLE = {
+    "width": "100%", "background": "#1e1e2e", "color": "#e0e0e0",
+    "border": "1px solid #555", "borderRadius": "4px",
+    "padding": "4px 8px", "fontSize": "0.875rem",
+}
+
 def make_input(label, id_, **kwargs):
+    kwargs.pop("size", None)
     return dbc.Row([
         dbc.Col(html.Label(label, className="small text-muted mb-1"), width=12),
-        dbc.Col(dbc.Input(id=id_, type="number", size="sm", **kwargs), width=12),
+        dbc.Col(dcc.Input(id=id_, type="number", debounce=False, style=_INPUT_STYLE, **kwargs), width=12),
     ], className="mb-2")
 
 def make_stat_card(label, id_, color="white"):
@@ -232,6 +239,7 @@ def strategy_tab():
 
                     html.Div(id="st-strikes",
                              children=html.P("Select a strategy above.", className="text-muted small")),
+                    dcc.Store(id="st-strikes-store", data=[]),
 
                     dbc.Button("Price Strategy", id="st-btn-price", color="primary",
                                size="sm", className="w-100 mt-3"),
@@ -616,7 +624,7 @@ def render_strike_bubbles(strategy, S):
                     type="number",
                     value=round(S * k_pct, 1),
                     min=0.01, step=0.5,
-                    debounce=True,
+                    debounce=False,
                     style={"textAlign": "center", "width": "100%", "background": "transparent",
                            "color": "white", "border": "1px solid #555", "borderRadius": "4px",
                            "padding": "4px 8px", "fontSize": "0.875rem"},
@@ -625,6 +633,14 @@ def render_strike_bubbles(strategy, S):
         ], xs=6, md=6, className="mb-2"))
 
     return dbc.Row(bubbles)
+
+
+@app.callback(
+    Output("st-strikes-store", "data"),
+    Input({"type": "st-strike", "index": ALL}, "value"),
+)
+def sync_strikes_store(values):
+    return values
 
 
 @app.callback(
@@ -637,7 +653,7 @@ def render_strike_bubbles(strategy, S):
     Output("st-chart-payoff", "figure"),
     Input("st-btn-price", "n_clicks"),
     State("st-preset",  "value"),
-    State({"type": "st-strike", "index": ALL}, "value"),
+    State("st-strikes-store", "data"),
     State("st-S",     "value"),
     State("st-r",     "value"),
     State("st-q",     "value"),
@@ -791,7 +807,7 @@ def price_strategy(_, strategy, strikes, S, r_pct, q_pct, sigma_pct, T_days):
     Input("st-xaxis",       "value"),
     Input("st-greeks-sel",  "value"),
     State("st-preset",  "value"),
-    State({"type": "st-strike", "index": ALL}, "value"),
+    State("st-strikes-store", "data"),
     State("st-S",     "value"),
     State("st-r",     "value"),
     State("st-q",     "value"),
