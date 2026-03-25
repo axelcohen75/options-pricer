@@ -1,8 +1,8 @@
 numpy
 pandas
 plotly
-dash>=2.0.0,<3
-dash-bootstrap-components>=2.0.0,<3
+dash
+dash-bootstrap-components
 scipy
 yfinance
 gunicorn
