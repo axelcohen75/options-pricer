@@ -2,11 +2,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
-import dash
-import dash_bootstrap_components as dbc
-from dash import dcc, html, Input, Output, State, ALL
-from dash.exceptions import PreventUpdate
+import streamlit as st
 
 from options_pricing import BlackScholes
 
@@ -40,7 +36,7 @@ PLOT_BASE = dict(
     font=dict(color="#e0e0e0"),
     xaxis=dict(gridcolor="#2a2a4a"),
     yaxis=dict(gridcolor="#2a2a4a"),
-    margin=dict(l=50, r=20, t=20, b=40),
+    margin=dict(l=50, r=20, t=30, b=40),
     legend=dict(bgcolor="rgba(0,0,0,0)"),
 )
 
@@ -98,919 +94,436 @@ def build_legs(strategy, strikes, sigma_pct, T_days):
             for ot, k_idx, qty in templates[strategy]]
 
 # ---------------------------------------------------------------------------
-# Layout helpers
+# App
 # ---------------------------------------------------------------------------
 
-_INPUT_STYLE = {
-    "width": "100%", "background": "#1e1e2e", "color": "#e0e0e0",
-    "border": "1px solid #555", "borderRadius": "4px",
-    "padding": "4px 8px", "fontSize": "0.875rem",
-}
+st.set_page_config(page_title="Options Pricer", layout="wide")
+st.title("Options Pricer")
 
-def make_input(label, id_, **kwargs):
-    kwargs.pop("size", None)
-    return dbc.Row([
-        dbc.Col(html.Label(label, className="small text-muted mb-1"), width=12),
-        dbc.Col(dcc.Input(id=id_, type="number", debounce=True, style=_INPUT_STYLE, **kwargs), width=12),
-    ], className="mb-2")
-
-def make_stat_card(label, id_, color="white"):
-    return dbc.Card(dbc.CardBody([
-        html.P(label, className="small text-muted mb-1"),
-        html.H5(id=id_, children="—", style={"color": color}),
-    ]), className="h-100")
-
-def empty_fig():
-    fig = go.Figure()
-    fig.update_layout(**PLOT_BASE)
-    return fig
-
-def payoff_and_greeks_right_panel(payoff_id, greeks_id):
-    return [
-        dbc.Card(dbc.CardBody([
-            html.H6("Payoff Diagram"),
-            dcc.Graph(id=payoff_id, config={"displayModeBar": False},
-                      style={"height": "300px"}, figure=empty_fig()),
-        ]), className="mb-3"),
-        dbc.Card(dbc.CardBody([
-            html.H6("Greeks Curves"),
-            dcc.Graph(id=greeks_id, config={"displayModeBar": False},
-                      style={"height": "320px"}, figure=empty_fig()),
-        ])),
-    ]
+tab_pricer, tab_strategy, tab_storage = st.tabs(["Options Pricing", "Strategy", "Gas Storage"])
 
 # ---------------------------------------------------------------------------
 # Options Pricing tab
 # ---------------------------------------------------------------------------
 
-def simple_pricer_tab():
-    return dbc.Container([
-        dbc.Row([
-            dbc.Col([
-                dbc.Card(dbc.CardBody([
-                    html.H6("Parameters", className="text-info mb-3"),
-                    dbc.Row([
-                        dbc.Col(make_input("Spot (S)",    "sp-S",     value=100,  min=0.01, step=0.5), md=6),
-                        dbc.Col(make_input("Strike (K)",  "sp-K",     value=100,  min=0.01, step=0.5), md=6),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(make_input("Rate r (%)",  "sp-r",     value=5.0,  min=0, step=0.1), md=6),
-                        dbc.Col(make_input("Div q (%)",   "sp-q",     value=0.0,  min=0, step=0.1), md=6),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(make_input("Vol σ (%)",     "sp-sigma", value=20.0, min=0.1, step=0.5), md=6),
-                        dbc.Col(make_input("Expiry (days)", "sp-T",     value=30,   min=1,   step=1),   md=6),
-                    ]),
-                    html.Label("Type", className="small text-muted"),
-                    dbc.RadioItems(
-                        id="sp-type",
-                        options=[{"label": " Call", "value": "call"},
-                                 {"label": " Put",  "value": "put"}],
-                        value="call", inline=True, className="mb-3",
-                    ),
-                    dbc.Button("Price", id="sp-btn-price", color="primary", size="sm", className="w-100"),
-                    html.Hr(className="my-3"),
-                    html.H6("Greeks Curves", className="text-info mb-2"),
-                    html.Label("X-axis", className="small text-muted"),
-                    dbc.Select(
-                        id="sp-xaxis",
-                        options=[
-                            {"label": "Spot Price",     "value": "S"},
-                            {"label": "Volatility σ",   "value": "sigma"},
-                            {"label": "Time to Expiry", "value": "T"},
-                        ],
-                        value="S", size="sm", className="mb-3",
-                    ),
-                    html.Label("Greeks", className="small text-muted"),
-                    dbc.Checklist(
-                        id="sp-greeks-sel",
-                        options=[{"label": f" {g}", "value": g}
-                                 for g in ["Delta", "Gamma", "Vega", "Theta", "Rho"]],
-                        value=["Delta", "Gamma", "Vega"],
-                        labelStyle={"display": "block"},
-                    ),
-                ]))
-            ], md=4),
+with tab_pricer:
+    col_left, col_right = st.columns([1, 2])
 
-            dbc.Col([
-                dbc.Row([
-                    dbc.Col(make_stat_card("Price",  "sp-out-price", "#2196f3"), md=True),
-                    dbc.Col(make_stat_card("Delta",  "sp-out-delta"), md=True),
-                    dbc.Col(make_stat_card("Gamma",  "sp-out-gamma"), md=True),
-                    dbc.Col(make_stat_card("Vega",   "sp-out-vega"),  md=True),
-                    dbc.Col(make_stat_card("Theta",  "sp-out-theta"), md=True),
-                    dbc.Col(make_stat_card("Rho",    "sp-out-rho"),   md=True),
-                ], className="mb-3"),
-                *payoff_and_greeks_right_panel("sp-chart-payoff", "sp-chart-greeks"),
-            ], md=8),
-        ], className="g-3 mt-1"),
-    ], fluid=True)
+    with col_left:
+        st.markdown("#### Parameters")
+        c1, c2 = st.columns(2)
+        S         = c1.number_input("Spot (S)",       value=100.0, min_value=0.01, step=0.5)
+        K         = c2.number_input("Strike (K)",     value=100.0, min_value=0.01, step=0.5)
+        r_pct     = c1.number_input("Rate r (%)",     value=5.0,   min_value=0.0,  step=0.1)
+        q_pct     = c2.number_input("Div q (%)",      value=0.0,   min_value=0.0,  step=0.1)
+        sigma_pct = c1.number_input("Vol σ (%)",      value=20.0,  min_value=0.1,  step=0.5)
+        T_days    = c2.number_input("Expiry (days)",  value=30,    min_value=1,    step=1)
+        otype     = st.radio("Type", ["call", "put"], horizontal=True)
 
-# ---------------------------------------------------------------------------
-# Strategy Options Pricer
-# ---------------------------------------------------------------------------
+    # convert inputs
+    r     = r_pct / 100
+    q     = q_pct / 100
+    sigma = sigma_pct / 100
+    T     = T_days / 365
 
-def strategy_tab():
-    return dbc.Container([
-        dbc.Row([
-            dbc.Col([
-                dbc.Card(dbc.CardBody([
-                    html.H6("Market Parameters", className="text-info mb-3"),
-                    dbc.Row([
-                        dbc.Col(make_input("Spot (S)",    "st-S",     value=100,  min=0.01, step=0.5), md=6),
-                        dbc.Col(make_input("Rate r (%)",  "st-r",     value=5.0,  min=0, step=0.1),   md=6),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(make_input("Div q (%)",   "st-q",     value=0.0,  min=0, step=0.1),   md=6),
-                        dbc.Col(make_input("Vol σ (%)",   "st-sigma", value=20.0, min=0.1, step=0.5), md=6),
-                    ]),
-                    make_input("Expiry (days)", "st-T", value=30, min=1, step=1),
-                    html.Hr(className="my-2"),
-
-                    html.H6("Strategy", className="text-info mb-2"),
-                    dbc.Select(
-                        id="st-preset",
-                        options=[{"label": "— Select —", "value": "none"}] + [
-                            {"label": label, "value": key}
-                            for key, label in STRATEGY_LABELS.items()
-                        ],
-                        value="none", size="sm", className="mb-3",
-                    ),
-
-                    html.P("Select a strategy above.", id="st-no-strat-msg", className="text-muted small"),
-                    dbc.Row([
-                        dbc.Col([html.Label("", id="st-K0-lbl", className="small text-muted mb-1"),
-                                 dcc.Input(id="st-K0", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
-                                id="st-K0-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
-                        dbc.Col([html.Label("", id="st-K1-lbl", className="small text-muted mb-1"),
-                                 dcc.Input(id="st-K1", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
-                                id="st-K1-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
-                    ]),
-                    dbc.Row([
-                        dbc.Col([html.Label("", id="st-K2-lbl", className="small text-muted mb-1"),
-                                 dcc.Input(id="st-K2", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
-                                id="st-K2-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
-                        dbc.Col([html.Label("", id="st-K3-lbl", className="small text-muted mb-1"),
-                                 dcc.Input(id="st-K3", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
-                                id="st-K3-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
-                    ]),
-
-                    dbc.Button("Price Strategy", id="st-btn-price", color="primary",
-                               size="sm", className="w-100 mt-3"),
-                    html.Hr(className="my-3"),
-                    html.H6("Greeks Curves", className="text-info mb-2"),
-                    html.Label("X-axis", className="small text-muted"),
-                    dbc.Select(
-                        id="st-xaxis",
-                        options=[
-                            {"label": "Spot Price",     "value": "S"},
-                            {"label": "Volatility σ",   "value": "sigma"},
-                            {"label": "Time to Expiry", "value": "T"},
-                        ],
-                        value="S", size="sm", className="mb-3",
-                    ),
-                    html.Label("Greeks", className="small text-muted"),
-                    dbc.Checklist(
-                        id="st-greeks-sel",
-                        options=[{"label": f" {g}", "value": g}
-                                 for g in ["Delta", "Gamma", "Vega", "Theta", "Rho"]],
-                        value=["Delta", "Gamma", "Vega"],
-                        labelStyle={"display": "block"},
-                    ),
-                ]))
-            ], md=4),
-
-            dbc.Col([
-                dbc.Row([
-                    dbc.Col(make_stat_card("Net Cost", "st-out-cost",  "#2196f3"), md=True),
-                    dbc.Col(make_stat_card("Delta",    "st-out-delta"), md=True),
-                    dbc.Col(make_stat_card("Gamma",    "st-out-gamma"), md=True),
-                    dbc.Col(make_stat_card("Vega",     "st-out-vega"),  md=True),
-                    dbc.Col(make_stat_card("Theta",    "st-out-theta"), md=True),
-                    dbc.Col(make_stat_card("Rho",      "st-out-rho"),   md=True),
-                ], className="mb-3"),
-                *payoff_and_greeks_right_panel("st-chart-payoff", "st-chart-greeks"),
-            ], md=8),
-        ], className="g-3 mt-1"),
-    ], fluid=True)
-
-# ---------------------------------------------------------------------------
-# Gas Storage Pricing
-# ---------------------------------------------------------------------------
-
-def gas_storage_tab():
-    return dbc.Container([
-        dbc.Row([
-            dbc.Col([
-                dbc.Card(dbc.CardBody([
-                    html.H6("Storage Parameters", className="text-info mb-3"),
-                    dbc.Row([
-                        dbc.Col(make_input("Capacity (MMBtu)",        "gs-capacity", value=1_000_000, min=1, step=10_000), md=6),
-                        dbc.Col(make_input("Initial Inventory",        "gs-init-inv", value=0,         min=0, step=10_000), md=6),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(make_input("Max Injection/mo",         "gs-max-inj",  value=300_000,   min=1, step=10_000), md=6),
-                        dbc.Col(make_input("Max Withdrawal/mo",        "gs-max-wdw",  value=500_000,   min=1, step=10_000), md=6),
-                    ]),
-                    dbc.Row([
-                        dbc.Col(make_input("Injection Cost ($/MMBtu)", "gs-inj-cost", value=0.01, min=0, step=0.001), md=6),
-                        dbc.Col(make_input("Withdrawal Cost ($/MMBtu)","gs-wdw-cost", value=0.01, min=0, step=0.001), md=6),
-                    ]),
-                    html.Label("Months to Fetch", className="small text-muted mb-1"),
-                    dbc.RadioItems(
-                        id="gs-n-months",
-                        options=[{"label": " 12 months", "value": 12},
-                                 {"label": " 24 months", "value": 24}],
-                        value=12, inline=True, className="mb-2",
-                    ),
-                    dbc.Button("Fetch Forward Curve", id="gs-btn-fetch",
-                               color="secondary", size="sm", className="w-100 mb-2"),
-                    html.Div(id="gs-fetch-status", className="small text-muted mb-2"),
-                    dbc.Button("Calculate Intrinsic Value", id="gs-btn-calc",
-                               color="primary", size="sm", className="w-100", disabled=True),
-                ])),
-                dbc.Card(dbc.CardBody([
-                    html.H6("How it works", className="text-info mb-2"),
-                    html.P(
-                        "This model computes the intrinsic value of a gas storage asset by solving "
-                        "an optimization problem over the current Henry Hub forward price curve. "
-                        "Data are fetched live from Yahoo Finance (NYMEX).",
-                        className="small text-muted",
-                    ),
-                    html.P(
-                        "The model determines the optimal monthly injection and withdrawal volumes "
-                        "that maximize total profit.",
-                        className="small text-muted",
-                    ),
-                    html.P("Objective", className="small text-white mb-1"),
-                    html.P(
-                        "Maximize: withdrawal revenue − injection cost − operational costs. "
-                        "Internally expressed as a cost minimization (linear program).",
-                        className="small text-muted",
-                    ),
-                    html.P("Constraints", className="small text-white mb-1"),
-                    html.Ul([
-                        html.Li("Inventory cannot exceed maximum capacity.", className="small text-muted"),
-                        html.Li("Storage level can never go below zero.", className="small text-muted"),
-                        html.Li("Injection and withdrawal volumes are capped each month.", className="small text-muted"),
-                        html.Li("Inventory evolves from cumulative injections and withdrawals.", className="small text-muted"),
-                        html.Li("Final inventory must equal initial inventory.", className="small text-muted"),
-                    ]),
-                ]), className="mt-3"),
-            ], md=4),
-
-            dbc.Col([
-                dbc.Row([
-                    dbc.Col(make_stat_card("Intrinsic Value ($)",      "gs-out-value",     "#2196f3"), md=4),
-                    dbc.Col(make_stat_card("Total Injected (MMBtu)",   "gs-out-injected"),             md=4),
-                    dbc.Col(make_stat_card("Total Withdrawn (MMBtu)",  "gs-out-withdrawn"),            md=4),
-                ], className="mb-3"),
-                dbc.Card(dbc.CardBody([
-                    html.H6("Henry Hub Forward Curve"),
-                    dcc.Graph(id="gs-chart-curve", config={"displayModeBar": False},
-                              style={"height": "280px"}, figure=empty_fig()),
-                ]), className="mb-3"),
-                dbc.Card(dbc.CardBody([
-                    html.H6("Optimal Injection / Withdrawal Schedule"),
-                    dcc.Graph(id="gs-chart-schedule", config={"displayModeBar": False},
-                              style={"height": "280px"}, figure=empty_fig()),
-                ])),
-            ], md=8),
-        ], className="g-3 mt-1"),
-    ], fluid=True)
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG],
-                suppress_callback_exceptions=True, title="Options Pricer")
-
-app.layout = html.Div([
-    dbc.NavbarSimple(
-        brand="Options Pricer",
-        brand_style={"fontSize": "1.1rem"},
-        color="dark", dark=True,
-    ),
-    dbc.Tabs(
-        id="main-tabs", active_tab="tab-pricer",
-        children=[
-            dbc.Tab(label="Options Pricing", tab_id="tab-pricer"),
-            dbc.Tab(label="Strategy",        tab_id="tab-strategy"),
-            dbc.Tab(label="Gas Storage",     tab_id="tab-storage"),
-        ],
-    ),
-    html.Div(simple_pricer_tab(), id="content-pricer"),
-    html.Div(strategy_tab(),      id="content-strategy", style={"display": "none"}),
-    html.Div(gas_storage_tab(),   id="content-storage",  style={"display": "none"}),
-    dcc.Store(id="gs-curve-store"),
-])
-
-# ---------------------------------------------------------------------------
-# Tab switching
-# ---------------------------------------------------------------------------
-
-@app.callback(
-    Output("content-pricer",   "style"),
-    Output("content-strategy", "style"),
-    Output("content-storage",  "style"),
-    Input("main-tabs", "active_tab"),
-)
-def switch_tab(tab):
-    show, hide = {"display": "block"}, {"display": "none"}
-    return (
-        show if tab == "tab-pricer"   else hide,
-        show if tab == "tab-strategy" else hide,
-        show if tab == "tab-storage"  else hide,
-    )
-
-# ---------------------------------------------------------------------------
-# Options Pricing callbacks
-# ---------------------------------------------------------------------------
-
-@app.callback(
-    Output("sp-out-price", "children"),
-    Output("sp-out-delta", "children"),
-    Output("sp-out-gamma", "children"),
-    Output("sp-out-vega",  "children"),
-    Output("sp-out-theta", "children"),
-    Output("sp-out-rho",   "children"),
-    Output("sp-chart-payoff", "figure"),
-    Input("sp-S",     "value"),
-    Input("sp-K",     "value"),
-    Input("sp-r",     "value"),
-    Input("sp-q",     "value"),
-    Input("sp-sigma", "value"),
-    Input("sp-T",     "value"),
-    Input("sp-type",  "value"),
-)
-
-# Pricing function
-def price_simple(S, K, r_pct, q_pct, sigma_pct, T_days, otype):
-
-    # convert all user inputs into clean numerical values
-    S     = safe_float(S,100.0)
-    K     = safe_float(K,100.0)
-    r     = safe_float(r_pct,5.0) / 100
-    q     = safe_float(q_pct,0.0) / 100
-    sigma = safe_float(sigma_pct,20.0) / 100
-    T     = safe_float(T_days,30.0) / 365
-
-    # compute Black-Scholes price at current spot
-    price = bs.BS_pricing(S, K, r, sigma, T, otype, q)
-
-    # compute all Greeks at current spot
+    # compute price and Greeks
+    price  = bs.BS_pricing(S, K, r, sigma, T, otype, q)
     greeks = bs.all_greeks(S, K, r, sigma, T, otype, q)
 
-    # build a range of spot values around current S used to visualize payoff and price sensitivity
-    s_range = np.linspace(max(0.01, S * 0.5), S * 1.5, 300)
+    with col_right:
 
-    # compute payoff at expiry for each spot in the range
-    expiry_payoff = (
-        np.maximum(s_range - K, 0)
-        if otype == "call"
-        else np.maximum(K - s_range, 0)
-    )
+        # metrics row
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("Price", format_num(price))
+        m2.metric("Delta", format_num(greeks["Delta"]))
+        m3.metric("Gamma", format_num(greeks["Gamma"]))
+        m4.metric("Vega",  format_num(greeks["Vega"]))
+        m5.metric("Theta", format_num(greeks["Theta"]))
+        m6.metric("Rho",   format_num(greeks["Rho"]))
 
-    # compute current option value
-    current_vals = [
-        safe_float(bs.BS_pricing(s, K, r, sigma, T, otype, q), 0.0)
-        for s in s_range
-    ]
+        # payoff diagram
+        s_range       = np.linspace(max(0.01, S * 0.5), S * 1.5, 300)
+        expiry_payoff = (np.maximum(s_range - K, 0) if otype == "call"
+                         else np.maximum(K - s_range, 0))
+        current_vals  = [safe_float(bs.BS_pricing(s, K, r, sigma, T, otype, q), 0.0)
+                         for s in s_range]
 
-    # create fig for visualization
-    fig = go.Figure()
+        fig_payoff = go.Figure()
+        fig_payoff.add_trace(go.Scatter(x=s_range, y=expiry_payoff, name="At Expiry",
+                                        line=dict(dash="dot", color="#e0e0e0")))
+        fig_payoff.add_trace(go.Scatter(x=s_range, y=current_vals, name="Current Value",
+                                        line=dict(color="#2196f3")))
+        fig_payoff.add_vline(x=K, line=dict(dash="dot"), annotation_text=f"K={K}")
+        fig_payoff.add_vline(x=S, line=dict(dash="dot", color="gray"), annotation_text=f"S={S}")
+        fig_payoff.update_layout(**PLOT_BASE, xaxis_title="Spot", yaxis_title="P&L",
+                                 title="Payoff Diagram")
+        st.plotly_chart(fig_payoff, use_container_width=True)
 
-    # plot payoff at expiry
-    fig.add_trace(go.Scatter(
-        x=s_range,
-        y=expiry_payoff,
-        name="At Expiry",
-        line=dict(dash="dot", color="#e0e0e0")
-    ))
+        # Greeks curves
+        st.markdown("#### Greeks Curves")
+        gc1, gc2 = st.columns(2)
+        xaxis    = gc1.selectbox("X-axis", ["Spot Price", "Volatility σ", "Time to Expiry"],
+                                 key="sp_xaxis")
+        selected = gc2.multiselect("Greeks", ["Delta", "Gamma", "Vega", "Theta", "Rho"],
+                                   default=["Delta", "Gamma", "Vega"], key="sp_greeks")
 
-    # plot current theoretical value
-    fig.add_trace(go.Scatter(
-        x=s_range,
-        y=current_vals,
-        name="Current Value",
-        line=dict(color="#2196f3")
-    ))
+        if selected:
+            if xaxis == "Spot Price":
+                x_vals, x_label, x_key = np.linspace(max(0.01, S * 0.5), S * 1.5, 200), "Spot Price", "S"
+            elif xaxis == "Volatility σ":
+                x_vals, x_label, x_key = np.linspace(0.01, 1.0, 200), "Volatility", "sigma"
+            else:
+                x_vals, x_label, x_key = np.linspace(1/365, 2.0, 200), "Time to Expiry (years)", "T"
 
-    # add vertical line at strike
-    fig.add_vline(x=K, line=dict(dash="dot"), annotation_text=f"K={K}")
+            def compute_greek(greek_name, x):
+                # pick which variable is moving, others stay fixed
+                sv   = x if x_key == "S"     else S
+                sigv = x if x_key == "sigma" else sigma
+                Tv   = x if x_key == "T"     else T
+                if sv <= 0 or sigv <= 0 or Tv <= 0:
+                    return np.nan
+                return bs.all_greeks(sv, K, r, sigv, Tv, otype, q)[greek_name]
 
-    # add vertical line at current spot
-    fig.add_vline(x=S, line=dict(dash="dot", color="gray"), annotation_text=f"S={S}")
-
-    # apply common styling + axis labels
-    fig.update_layout(**PLOT_BASE, xaxis_title="Spot", yaxis_title="P&L")
-
-    # return formatted results for display + the chart
-    return (
-        format_num(price),
-        format_num(greeks["Delta"]), format_num(greeks["Gamma"]),
-        format_num(greeks["Vega"]),  format_num(greeks["Theta"]),
-        format_num(greeks["Rho"]),
-        fig,
-    )
-
-
-@app.callback(
-    Output("sp-chart-greeks", "figure"),
-    Input("sp-xaxis",      "value"),
-    Input("sp-greeks-sel", "value"),
-    Input("sp-S",     "value"),
-    Input("sp-K",     "value"),
-    Input("sp-r",     "value"),
-    Input("sp-q",     "value"),
-    Input("sp-sigma", "value"),
-    Input("sp-T",     "value"),
-    Input("sp-type",  "value"),
-)
-
-def draw_simple_greeks(xaxis, selected, S, K, r_pct, q_pct, sigma_pct, T_days, otype):
-
-    # clean and convert all inputs
-    S     = safe_float(S,        100.0)
-    K     = safe_float(K,        100.0)
-    r     = safe_float(r_pct,     5.0) / 100
-    q     = safe_float(q_pct,     0.0) / 100
-    sigma = safe_float(sigma_pct, 20.0) / 100
-    T     = safe_float(T_days,   30.0) / 365
-
-    # default selection if nothing is chosen in UI
-    selected = selected or ["Delta"]
-
-    # build the x-axis depending on what the user wants to vary
-    if xaxis == "S":
-
-        # vary spot around current value
-        x_vals, x_label = np.linspace(max(0.01, S * 0.5), S * 1.5, 200), "Spot Price"
-    elif xaxis == "sigma":
-
-        # vary volatility from low to high
-        x_vals, x_label = np.linspace(0.01, 1.0, 200), "Volatility"
-    else:
-
-        # vary time to expiry (in years)
-        x_vals, x_label = np.linspace(1/365, 2.0, 200), "Time to Expiry (years)"
-
-    def compute(greek, x):
-        # decide which variable is moving and which stay fixed
-        sv   = x if xaxis == "S"     else S
-        sigv = x if xaxis == "sigma" else sigma
-        Tv   = x if xaxis == "T"     else T
-
-        # avoid invalid BS inputs
-        if sv <= 0 or sigv <= 0 or Tv <= 0:
-            return np.nan
-
-        # compute the selected greek at this point
-        if greek == "Delta": return bs.delta(sv, K, r, sigv, Tv, otype, q)
-        if greek == "Gamma": return bs.gamma(sv, K, r, sigv, Tv, q)
-        if greek == "Vega":  return bs.vega(sv, K, r, sigv, Tv, q)
-        if greek == "Theta": return bs.theta(sv, K, r, sigv, Tv, otype, q)
-        if greek == "Rho":   return bs.rho(sv, K, r, sigv, Tv, otype, q)
-
-    # number of subplots = number of selected Greeks
-    n = len(selected)
-
-    # create stacked plots sharing the same x-axis
-    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, vertical_spacing=0.04)
-
-    # loop over each selected greek
-    for i, greek in enumerate(selected, 1):
-
-        # compute the curve by evaluating the greek for each x value
-        fig.add_trace(go.Scatter(
-            x=x_vals,
-            y=[compute(greek, x) for x in x_vals],
-            name=greek,
-            line=dict(color="#2196f3")
-        ), row=i, col=1)
-
-        # label each subplot with the greek name
-        fig.update_yaxes(title_text=greek, row=i, col=1, gridcolor="#2a2a4a")
-
-    # label x-axis only on the last subplot
-    fig.update_xaxes(title_text=x_label, row=n, col=1, gridcolor="#2a2a4a")
-
-    # apply style
-    fig.update_layout(
-        paper_bgcolor="#1a1a2e",
-        plot_bgcolor="#16213e",
-        font=dict(color="#e0e0e0"),
-        height=320,
-        margin=dict(l=60, r=20, t=10, b=40),
-        legend=dict(bgcolor="rgba(0,0,0,0)")
-    )
-
-    return fig
+            n = len(selected)
+            fig_greeks = make_subplots(rows=n, cols=1, shared_xaxes=True, vertical_spacing=0.04)
+            for i, greek in enumerate(selected, 1):
+                fig_greeks.add_trace(go.Scatter(x=x_vals,
+                                                y=[compute_greek(greek, x) for x in x_vals],
+                                                name=greek, line=dict(color="#2196f3")),
+                                     row=i, col=1)
+                fig_greeks.update_yaxes(title_text=greek, row=i, col=1, gridcolor="#2a2a4a")
+            fig_greeks.update_xaxes(title_text=x_label, row=n, col=1, gridcolor="#2a2a4a")
+            fig_greeks.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#16213e",
+                                     font=dict(color="#e0e0e0"),
+                                     margin=dict(l=60, r=20, t=10, b=40),
+                                     legend=dict(bgcolor="rgba(0,0,0,0)"),
+                                     height=max(300, n * 150))
+            st.plotly_chart(fig_greeks, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Strategy callbacks options strategy
+# Strategy tab
 # ---------------------------------------------------------------------------
 
-_SHOW = {"display": "block"}
-_HIDE = {"display": "none"}
+with tab_strategy:
+    sc_left, sc_right = st.columns([1, 2])
 
-@app.callback(
-    Output("st-no-strat-msg", "style"),
-    Output("st-K0-col", "style"), Output("st-K0-lbl", "children"), Output("st-K0", "value"),
-    Output("st-K1-col", "style"), Output("st-K1-lbl", "children"), Output("st-K1", "value"),
-    Output("st-K2-col", "style"), Output("st-K2-lbl", "children"), Output("st-K2", "value"),
-    Output("st-K3-col", "style"), Output("st-K3-lbl", "children"), Output("st-K3", "value"),
-    Input("st-preset", "value"),
-    State("st-S", "value"),
-)
-def render_strike_values(strategy, S):
-    S = safe_float(S, 100.0)
-    if not strategy or strategy == "none" or strategy not in STRATEGY_STRIKE_CONFIG:
-        return _SHOW, _HIDE, "", 100, _HIDE, "", 100, _HIDE, "", 100, _HIDE, "", 100
-    defs = STRATEGY_STRIKE_CONFIG[strategy]
-    result = [_HIDE]
-    for i in range(4):
-        if i < len(defs):
-            lbl, k_pct = defs[i]
-            result += [_SHOW, lbl, round(S * k_pct, 1)]
+    with sc_left:
+        st.markdown("#### Market Parameters")
+        sc1, sc2  = st.columns(2)
+        st_S      = sc1.number_input("Spot (S)",      value=100.0, min_value=0.01, step=0.5,  key="st_S")
+        st_r      = sc2.number_input("Rate r (%)",    value=5.0,   min_value=0.0,  step=0.1,  key="st_r")
+        st_q      = sc1.number_input("Div q (%)",     value=0.0,   min_value=0.0,  step=0.1,  key="st_q")
+        st_sigma  = sc2.number_input("Vol σ (%)",     value=20.0,  min_value=0.1,  step=0.5,  key="st_sigma")
+        st_T      = st.number_input("Expiry (days)",  value=30,    min_value=1,    step=1,    key="st_T")
+
+        st.markdown("#### Strategy")
+        strategy_options = ["— Select —"] + list(STRATEGY_LABELS.values())
+        strategy_label   = st.selectbox("Strategy", strategy_options, key="st_strategy")
+
+        # reverse lookup from label to key
+        strategy_key = next((k for k, v in STRATEGY_LABELS.items()
+                             if v == strategy_label), None)
+
+        # strike inputs — shown only when a strategy is selected
+        strikes = []
+        if strategy_key and strategy_key in STRATEGY_STRIKE_CONFIG:
+            strike_defs = STRATEGY_STRIKE_CONFIG[strategy_key]
+            st.markdown("**Strikes**")
+            n_defs = len(strike_defs)
+            strike_cols = st.columns(min(n_defs, 2))
+            for i, (lbl, k_pct) in enumerate(strike_defs):
+                val = strike_cols[i % 2].number_input(
+                    lbl, value=round(st_S * k_pct, 1), min_value=0.01,
+                    step=0.5, key=f"st_K{i}"
+                )
+                strikes.append(val)
+
+    with sc_right:
+        if not strategy_key:
+            st.info("Select a strategy above to price it.")
         else:
-            result += [_HIDE, "", 100]
-    return tuple(result)
+            st_r_ = st_r / 100
+            st_q_ = st_q / 100
+            legs  = build_legs(strategy_key, strikes, st_sigma, st_T)
 
+            if not legs:
+                st.warning("Not enough strikes defined.")
+            else:
+                net_cost = net_delta = net_gamma = net_vega = net_theta = net_rho = 0.0
 
-@app.callback(
-    Output("st-out-cost",  "children"),
-    Output("st-out-delta", "children"),
-    Output("st-out-gamma", "children"),
-    Output("st-out-vega",  "children"),
-    Output("st-out-theta", "children"),
-    Output("st-out-rho",   "children"),
-    Output("st-chart-payoff", "figure"),
-    Input("st-btn-price", "n_clicks"),
-    Input("st-preset",  "value"),
-    Input("st-K0", "value"), Input("st-K1", "value"),
-    Input("st-K2", "value"), Input("st-K3", "value"),
-    Input("st-S",     "value"),
-    Input("st-r",     "value"),
-    Input("st-q",     "value"),
-    Input("st-sigma", "value"),
-    Input("st-T",     "value"),
-    prevent_initial_call=True,
-)
+                for leg in legs:
+                    sig = max(leg["sigma_pct"] / 100, 1e-6)
+                    Tv  = max(leg["T_days"] / 365, 1e-6)
+                    qty = leg["qty"]
+                    ot  = leg["type"]
+                    K_  = leg["K"]
 
-def price_strategy(_, strategy, K0, K1, K2, K3, S, r_pct, q_pct, sigma_pct, T_days):
-    strikes = [K0, K1, K2, K3]
+                    # accumulate price and Greeks weighted by position size
+                    net_cost  += qty * safe_float(bs.BS_pricing(st_S, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
+                    net_delta += qty * safe_float(bs.delta(st_S, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
+                    net_gamma += qty * safe_float(bs.gamma(st_S, K_, st_r_, sig, Tv, st_q_), 0.0)
+                    net_vega  += qty * safe_float(bs.vega(st_S, K_, st_r_, sig, Tv, st_q_), 0.0)
+                    net_theta += qty * safe_float(bs.theta(st_S, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
+                    net_rho   += qty * safe_float(bs.rho(st_S, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
 
-    # default output if inputs are missing
-    blank = "—"
+                # metrics row
+                sm1, sm2, sm3, sm4, sm5, sm6 = st.columns(6)
+                sm1.metric("Net Cost", format_num(net_cost))
+                sm2.metric("Delta",    format_num(net_delta))
+                sm3.metric("Gamma",    format_num(net_gamma))
+                sm4.metric("Vega",     format_num(net_vega))
+                sm5.metric("Theta",    format_num(net_theta))
+                sm6.metric("Rho",      format_num(net_rho))
 
-    # if no strategy or strikes : nothing to price
-    if not strategy or strategy == "none" or not strikes:
-        return blank, blank, blank, blank, blank, blank, empty_fig()
+                # payoff diagram
+                s_range     = np.linspace(max(0.01, st_S * 0.5), st_S * 1.5, 400)
+                expiry_pnl  = np.zeros(len(s_range))
+                current_pnl = np.zeros(len(s_range))
+                colors = ["#2196f3", "#42a5f5", "#90caf9", "#bbdefb"]
+                fig_strat = go.Figure()
 
-    # same logic
-    S     = safe_float(S, 100.0)
-    r     = safe_float(r_pct, 5.0) / 100
-    q     = safe_float(q_pct, 0.0) / 100
-    sigma = safe_float(sigma_pct, 20.0)  
-    T     = safe_float(T_days,   30.0)    
+                for i, leg in enumerate(legs):
+                    sig = max(leg["sigma_pct"] / 100, 1e-6)
+                    Tv  = max(leg["T_days"] / 365, 1e-6)
+                    qty = leg["qty"]
+                    ot  = leg["type"]
+                    K_  = leg["K"]
+                    p0  = safe_float(bs.BS_pricing(st_S, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
 
-    # build list of option legs composing the strategy
-    legs = build_legs(strategy, strikes, sigma, T)
+                    # payoff at expiry minus initial premium paid
+                    leg_exp = (qty * (np.maximum(s_range - K_, 0) if ot == "call"
+                                      else np.maximum(K_ - s_range, 0)) - qty * p0)
+                    expiry_pnl += leg_exp
 
-    # if something went wrong in leg construction : stop
-    if not legs:
-        return blank, blank, blank, blank, blank, blank, empty_fig()
+                    # current P&L = value today - initial price
+                    curr = np.array([safe_float(bs.BS_pricing(s, K_, st_r_, sig, Tv, ot, st_q_), 0.0)
+                                     for s in s_range])
+                    current_pnl += qty * (curr - p0)
 
-    # initialize aggregated metrics
-    net_cost = net_delta = net_gamma = net_vega = net_theta = net_rho = 0.0
+                    # plot individual leg payoff (faint dotted line)
+                    fig_strat.add_trace(go.Scatter(x=s_range, y=leg_exp,
+                                                   name=f"{qty:+g} {ot} K={K_}",
+                                                   line=dict(dash="dot", color=colors[i % len(colors)], width=1),
+                                                   opacity=0.5))
 
-    # loop over each leg and sum contributions
-    for leg in legs:
+                fig_strat.add_trace(go.Scatter(x=s_range, y=expiry_pnl, name="At Expiry",
+                                               line=dict(color="#e0e0e0", width=2)))
+                fig_strat.add_trace(go.Scatter(x=s_range, y=current_pnl, name="Current Value",
+                                               line=dict(color="#2196f3", width=2)))
 
-        # convert leg parameters to BS inputs
-        sig = max(leg["sigma_pct"] / 100, 1e-6)
-        Tv  = max(leg["T_days"] / 365, 1e-6)
+                # horizontal zero line → break-even reference
+                fig_strat.add_hline(y=0, line=dict(color="gray", dash="dot", width=1))
 
-        qty = leg["qty"]     
-        ot  = leg["type"]    
-        K   = leg["K"]      
+                # vertical line at current spot
+                fig_strat.add_vline(x=st_S, line=dict(color="gray", dash="dot"),
+                                    annotation_text=f"S={st_S}")
 
-        # accumulate price and Greeks weighted by position size
-        net_cost  += qty * safe_float(bs.BS_pricing(S, K, r, sig, Tv, ot, q), 0.0)
-        net_delta += qty * safe_float(bs.delta(S, K, r, sig, Tv, ot, q), 0.0)
-        net_gamma += qty * safe_float(bs.gamma(S, K, r, sig, Tv, q), 0.0)
-        net_vega  += qty * safe_float(bs.vega(S, K, r, sig, Tv, q), 0.0)
-        net_theta += qty * safe_float(bs.theta(S, K, r, sig, Tv, ot, q), 0.0)
-        net_rho   += qty * safe_float(bs.rho(S, K, r, sig, Tv, ot, q), 0.0)
+                # vertical lines at each strike
+                for leg in legs:
+                    fig_strat.add_vline(x=leg["K"], line=dict(dash="dot", color="#555", width=1))
 
-    # build spot range to visualize payoff and current value
-    s_range = np.linspace(max(0.01, S * 0.5), S * 1.5, 400)
+                # adjust y-axis range with padding for readability
+                combined = np.concatenate([expiry_pnl, current_pnl])
+                pad = max(abs(np.max(combined) - np.min(combined)) * 0.15, 0.5)
+                fig_strat.update_layout({**PLOT_BASE, "xaxis_title": "Spot at Expiry",
+                                         "yaxis_title": "P&L", "title": "Payoff Diagram"})
+                fig_strat.update_yaxes(range=[float(np.min(combined)) - pad,
+                                              float(np.max(combined)) + pad])
+                st.plotly_chart(fig_strat, use_container_width=True)
 
-    # initialize total P&L curves
-    expiry_pnl = np.zeros(len(s_range))
-    current_pnl = np.zeros(len(s_range))
+                # Greeks curves
+                st.markdown("#### Greeks Curves")
+                gc1s, gc2s  = st.columns(2)
+                xaxis_st    = gc1s.selectbox("X-axis",
+                                             ["Spot Price", "Volatility σ", "Time to Expiry"],
+                                             key="st_xaxis")
+                selected_st = gc2s.multiselect("Greeks",
+                                               ["Delta", "Gamma", "Vega", "Theta", "Rho"],
+                                               default=["Delta", "Gamma", "Vega"],
+                                               key="st_greeks")
 
-    # color palette for individual legs
-    colors = ["#2196f3", "#42a5f5", "#90caf9", "#bbdefb"]
+                if selected_st:
+                    sigma_dec = st_sigma / 100
+                    T_yr      = st_T / 365
 
-    fig = go.Figure()
+                    if xaxis_st == "Spot Price":
+                        x_vals, x_label, x_key = (np.linspace(max(0.01, st_S * 0.5), st_S * 1.5, 200),
+                                                   "Spot Price", "S")
+                    elif xaxis_st == "Volatility σ":
+                        x_vals, x_label, x_key = np.linspace(0.01, 1.0, 200), "Volatility", "sigma"
+                    else:
+                        x_vals, x_label, x_key = (np.linspace(1/365, 2.0, 200),
+                                                   "Time to Expiry (years)", "T")
 
-    # loop again over each leg to build payoff curves
-    for i, leg in enumerate(legs):
+                    def net_greek(greek_name, x):
+                        total = 0.0
+                        for leg in legs:
+                            sig = max(leg["sigma_pct"] / 100, 1e-6)
+                            Tv  = max(leg["T_days"] / 365, 1e-6)
+                            qty = leg["qty"]
+                            ot  = leg["type"]
+                            K_  = leg["K"]
+                            sv   = x    if x_key == "S"     else st_S
+                            sigv = x    if x_key == "sigma" else sig
+                            Tvv  = x    if x_key == "T"     else Tv
+                            if sv <= 0 or sigv <= 0 or Tvv <= 0:
+                                return np.nan
+                            if greek_name == "Delta": total += qty * bs.delta(sv, K_, st_r_, sigv, Tvv, ot, st_q_)
+                            if greek_name == "Gamma": total += qty * bs.gamma(sv, K_, st_r_, sigv, Tvv, st_q_)
+                            if greek_name == "Vega":  total += qty * bs.vega(sv, K_, st_r_, sigv, Tvv, st_q_)
+                            if greek_name == "Theta": total += qty * bs.theta(sv, K_, st_r_, sigv, Tvv, ot, st_q_)
+                            if greek_name == "Rho":   total += qty * bs.rho(sv, K_, st_r_, sigv, Tvv, ot, st_q_)
+                        return total
 
-        sig = max(leg["sigma_pct"] / 100, 1e-6)
-        Tv  = max(leg["T_days"] / 365, 1e-6)
-        qty = leg["qty"]
-        ot  = leg["type"]
-        K   = leg["K"]
-
-        # current price of this leg at spot S
-        p0  = safe_float(bs.BS_pricing(S, K, r, sig, Tv, ot, q), 0.0)
-
-        # payoff at expiry minus initial premium paid
-        leg_exp = qty * (
-            np.maximum(s_range - K, 0) if ot == "call"
-            else np.maximum(K - s_range, 0)
-        ) - qty * p0
-
-        # add this leg contribution to total expiry P&L
-        expiry_pnl += leg_exp
-
-        # compute current value across spot range
-        curr = np.array([
-            safe_float(bs.BS_pricing(s, K, r, sig, Tv, ot, q), 0.0)
-            for s in s_range
-        ])
-
-        # current P&L = value today - initial price
-        current_pnl += qty * (curr - p0)
-
-        # plot individual leg payoff (faint dotted line)
-        fig.add_trace(go.Scatter(
-            x=s_range,
-            y=leg_exp,
-            name=f"{qty:+g} {ot} K={K}",
-            line=dict(dash="dot", color=colors[i % len(colors)], width=1),
-            opacity=0.5
-        ))
-
-    # plot total strategy payoff at expiry
-    fig.add_trace(go.Scatter(
-        x=s_range,
-        y=expiry_pnl,
-        name="At Expiry",
-        line=dict(color="#e0e0e0", width=2)
-    ))
-
-    # plot total current P&L
-    fig.add_trace(go.Scatter(
-        x=s_range,
-        y=current_pnl,
-        name="Current Value",
-        line=dict(color="#2196f3", width=2)
-    ))
-
-    # horizontal zero line → break-even reference
-    fig.add_hline(y=0, line=dict(color="gray", dash="dot", width=1))
-
-    # vertical line at current spot
-    fig.add_vline(x=S, line=dict(color="gray", dash="dot"), annotation_text=f"S={S}")
-
-    # vertical lines at each strike
-    for leg in legs:
-        fig.add_vline(x=leg["K"], line=dict(dash="dot", color="#555", width=1))
-
-    # adjust y-axis range with padding for readability
-    combined = np.concatenate([expiry_pnl, current_pnl])
-    pad = max(abs(np.max(combined) - np.min(combined)) * 0.15, 0.5)
-
-    fig.update_layout({**PLOT_BASE, "xaxis_title": "Spot at Expiry", "yaxis_title": "P&L"})
-    fig.update_yaxes(range=[float(np.min(combined)) - pad, float(np.max(combined)) + pad])
-
-    # return aggregated metrics + chart
-    return (
-        format_num(net_cost),
-        format_num(net_delta), format_num(net_gamma),
-        format_num(net_vega),  format_num(net_theta),
-        format_num(net_rho),
-        fig,
-    )
-
-
-@app.callback(
-    Output("st-chart-greeks", "figure"),
-    Input("st-btn-price",   "n_clicks"),
-    Input("st-xaxis",       "value"),
-    Input("st-greeks-sel",  "value"),
-    Input("st-preset",  "value"),
-    Input("st-K0", "value"), Input("st-K1", "value"),
-    Input("st-K2", "value"), Input("st-K3", "value"),
-    Input("st-S",     "value"),
-    Input("st-r",     "value"),
-    Input("st-q",     "value"),
-    Input("st-sigma", "value"),
-    Input("st-T",     "value"),
-    prevent_initial_call=True,
-)
-
-def draw_strategy_greeks(_, xaxis, selected, strategy, K0, K1, K2, K3, S, r_pct, q_pct, sigma_pct, T_days):
-    strikes = [K0, K1, K2, K3]
-    if not strategy or strategy == "none":
-        return empty_fig()
-
-    S     = safe_float(S, 100.0)
-    r     = safe_float(r_pct, 5.0) / 100
-    q     = safe_float(q_pct, 0.0) / 100
-    sigma = safe_float(sigma_pct, 20.0)
-    T     = safe_float(T_days, 30.0)
-    selected = selected or ["Delta"]
-
-    legs = build_legs(strategy, strikes, sigma, T)
-    if not legs:
-        return empty_fig()
-
-    if xaxis == "S":
-        x_vals, x_label = np.linspace(max(0.01, S * 0.5), S * 1.5, 200), "Spot Price"
-    elif xaxis == "sigma":
-        x_vals, x_label = np.linspace(0.01, 1.0, 200), "Volatility"
-    else:
-        x_vals, x_label = np.linspace(1/365, 2.0, 200), "Time to Expiry (years)"
-
-    def net_greek(greek, x):
-        total = 0.0
-        for leg in legs:
-            sig = max(leg["sigma_pct"] / 100, 1e-6)
-            Tv  = max(leg["T_days"] / 365, 1e-6)
-            qty = leg["qty"]
-            ot  = leg["type"]
-            K   = leg["K"]
-            sv   = x if xaxis == "S"     else S
-            sigv = x if xaxis == "sigma" else sig
-            Tvv  = x if xaxis == "T"     else Tv
-            if sv <= 0 or sigv <= 0 or Tvv <= 0:
-                return np.nan
-            if greek == "Delta": total += qty * bs.delta(sv, K, r, sigv, Tvv, ot, q)
-            if greek == "Gamma": total += qty * bs.gamma(sv, K, r, sigv, Tvv, q)
-            if greek == "Vega":  total += qty * bs.vega(sv, K, r, sigv, Tvv, q)
-            if greek == "Theta": total += qty * bs.theta(sv, K, r, sigv, Tvv, ot, q)
-            if greek == "Rho":   total += qty * bs.rho(sv, K, r, sigv, Tvv, ot, q)
-        return total
-
-    n = len(selected)
-    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, vertical_spacing=0.04)
-    for i, greek in enumerate(selected, 1):
-        fig.add_trace(go.Scatter(x=x_vals, y=[net_greek(greek, x) for x in x_vals],
-                                 name=greek, line=dict(color="#2196f3")), row=i, col=1)
-        fig.update_yaxes(title_text=greek, row=i, col=1, gridcolor="#2a2a4a")
-    fig.update_xaxes(title_text=x_label, row=n, col=1, gridcolor="#2a2a4a")
-    fig.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#16213e",
-                      font=dict(color="#e0e0e0"), height=320,
-                      margin=dict(l=60, r=20, t=10, b=40),
-                      legend=dict(bgcolor="rgba(0,0,0,0)"))
-    return fig
+                    n = len(selected_st)
+                    fig_st_greeks = make_subplots(rows=n, cols=1, shared_xaxes=True,
+                                                  vertical_spacing=0.04)
+                    for i, greek in enumerate(selected_st, 1):
+                        fig_st_greeks.add_trace(
+                            go.Scatter(x=x_vals, y=[net_greek(greek, x) for x in x_vals],
+                                       name=greek, line=dict(color="#2196f3")),
+                            row=i, col=1)
+                        fig_st_greeks.update_yaxes(title_text=greek, row=i, col=1,
+                                                   gridcolor="#2a2a4a")
+                    fig_st_greeks.update_xaxes(title_text=x_label, row=n, col=1,
+                                               gridcolor="#2a2a4a")
+                    fig_st_greeks.update_layout(paper_bgcolor="#1a1a2e", plot_bgcolor="#16213e",
+                                                font=dict(color="#e0e0e0"),
+                                                margin=dict(l=60, r=20, t=10, b=40),
+                                                legend=dict(bgcolor="rgba(0,0,0,0)"),
+                                                height=max(300, n * 150))
+                    st.plotly_chart(fig_st_greeks, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Gas Storage callbacks
+# Gas Storage tab
 # ---------------------------------------------------------------------------
 
-@app.callback(
-    Output("gs-curve-store",  "data"),
-    Output("gs-chart-curve",  "figure"),
-    Output("gs-fetch-status", "children"),
-    Output("gs-btn-calc",     "disabled"),
-    Input("gs-btn-fetch", "n_clicks"),
-    State("gs-n-months",  "value"),
-    prevent_initial_call=True,
-)
-def fetch_curve(_, n_months):
-    from gas_storage_pricing import fetch_henry_hub_curve
-    n = int(n_months) if n_months in (12, 24) else 12
-    try:
-        df = fetch_henry_hub_curve(n_months=n)
-    except Exception as e:
-        return None, empty_fig(), f"Error: {e}", True
-    if df.empty:
-        return None, empty_fig(), "No data returned — markets may be closed.", True
+with tab_storage:
+    gs_left, gs_right = st.columns([1, 2])
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df["delivery_date"].astype(str), y=df["price"],
-        mode="lines+markers", line=dict(color="#2196f3"), marker=dict(size=6),
-        name="HH Futures",
-    ))
-    fig.update_layout(**PLOT_BASE, xaxis_title="Delivery Month", yaxis_title="Price ($/MMBtu)")
-    status = f"Fetched {len(df)} contracts — last: {df['ticker'].iloc[-1]}"
-    return df.to_json(date_format="iso", orient="split"), fig, status, False
+    with gs_left:
+        st.markdown("#### Storage Parameters")
+        gs1, gs2    = st.columns(2)
+        gs_capacity = gs1.number_input("Capacity (MMBtu)",         value=1_000_000, min_value=1,   step=10_000)
+        gs_init_inv = gs2.number_input("Initial Inventory",         value=0,         min_value=0,   step=10_000)
+        gs_max_inj  = gs1.number_input("Max Injection/mo",          value=300_000,   min_value=1,   step=10_000)
+        gs_max_wdw  = gs2.number_input("Max Withdrawal/mo",         value=500_000,   min_value=1,   step=10_000)
+        gs_inj_cost = gs1.number_input("Injection Cost ($/MMBtu)",  value=0.01,      min_value=0.0, step=0.001, format="%.3f")
+        gs_wdw_cost = gs2.number_input("Withdrawal Cost ($/MMBtu)", value=0.01,      min_value=0.0, step=0.001, format="%.3f")
+        n_months    = st.radio("Months to Fetch", [12, 24], horizontal=True)
 
+        if st.button("Fetch Forward Curve", use_container_width=True):
+            from gas_storage_pricing import fetch_henry_hub_curve
+            with st.spinner("Fetching..."):
+                try:
+                    df = fetch_henry_hub_curve(n_months=n_months)
+                    if df.empty:
+                        st.warning("No data returned — markets may be closed.")
+                        st.session_state["gs_curve"] = None
+                    else:
+                        st.session_state["gs_curve"] = df
+                        st.success(f"Fetched {len(df)} contracts — last: {df['ticker'].iloc[-1]}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    st.session_state["gs_curve"] = None
 
-@app.callback(
-    Output("gs-out-value",     "children"),
-    Output("gs-out-injected",  "children"),
-    Output("gs-out-withdrawn", "children"),
-    Output("gs-chart-schedule","figure"),
-    Input("gs-btn-calc", "n_clicks"),
-    State("gs-curve-store", "data"),
-    State("gs-capacity",    "value"),
-    State("gs-init-inv",    "value"),
-    State("gs-max-inj",     "value"),
-    State("gs-max-wdw",     "value"),
-    State("gs-inj-cost",    "value"),
-    State("gs-wdw-cost",    "value"),
-    prevent_initial_call=True,
-)
+        curve_ready = st.session_state.get("gs_curve") is not None
+        if st.button("Calculate Intrinsic Value", use_container_width=True,
+                     disabled=not curve_ready):
+            from gas_storage_pricing import GasStorageIntrinsicValue
+            df = st.session_state["gs_curve"]
 
-def calculate_intrinsic(_, curve_json, capacity, init_inv, max_inj, max_wdw, inj_cost, wdw_cost):
+            # create storage object with user inputs
+            storage = GasStorageIntrinsicValue(
+                capacity=float(gs_capacity),
+                initial_inventory=float(gs_init_inv),
+                max_injection_rate=float(gs_max_inj),
+                max_withdrawal_rate=float(gs_max_wdw),
+                injection_cost=float(gs_inj_cost),
+                withdrawal_cost=float(gs_wdw_cost),
+            )
 
-    from gas_storage_pricing import GasStorageIntrinsicValue
+            # run optimization : returns intrinsic value + optimal schedule
+            value, schedule = storage.storage_price(df)
+            st.session_state["gs_results"] = (value, schedule)
 
-    # if no curve has been fetched → nothing to compute
-    if not curve_json:
-        return "—", "—", "—", empty_fig()
+        st.markdown("---")
+        st.markdown("#### How it works")
+        st.caption(
+            "This model computes the intrinsic value of a gas storage asset by solving "
+            "an optimization problem over the current Henry Hub forward price curve. "
+            "Data are fetched live from Yahoo Finance (NYMEX)."
+        )
+        st.caption(
+            "The model determines the optimal monthly injection and withdrawal volumes "
+            "that maximize total profit."
+        )
+        st.markdown("**Objective**")
+        st.caption("Maximize: withdrawal revenue − injection cost − operational costs. "
+                   "Internally expressed as a cost minimization (linear program).")
+        st.markdown("**Constraints**")
+        for constraint in [
+            "Inventory cannot exceed maximum capacity.",
+            "Storage level can never go below zero.",
+            "Injection and withdrawal volumes are capped each month.",
+            "Inventory evolves from cumulative injections and withdrawals.",
+            "Final inventory must equal initial inventory.",
+        ]:
+            st.caption(f"• {constraint}")
 
-    import io
+    with gs_right:
 
-    # rebuild df from stored JSON
-    df = pd.read_json(io.StringIO(curve_json), orient="split")
+        # Henry Hub forward curve chart
+        if st.session_state.get("gs_curve") is not None:
+            df = st.session_state["gs_curve"]
+            fig_curve = go.Figure()
+            fig_curve.add_trace(go.Scatter(
+                x=df["delivery_date"].astype(str), y=df["price"],
+                mode="lines+markers", line=dict(color="#2196f3"), marker=dict(size=6),
+                name="HH Futures",
+            ))
+            fig_curve.update_layout(**PLOT_BASE, xaxis_title="Delivery Month",
+                                    yaxis_title="Price ($/MMBtu)",
+                                    title="Henry Hub Forward Curve")
+            st.plotly_chart(fig_curve, use_container_width=True)
 
-    # ensure dates are in proper format
-    df["delivery_date"] = pd.to_datetime(df["delivery_date"])
+        # results + schedule chart
+        if "gs_results" in st.session_state:
+            value, schedule = st.session_state["gs_results"]
 
-    # create storage object with user inputs (cleaned)
-    storage = GasStorageIntrinsicValue(
-        capacity=safe_float(capacity, 1_000_000),
-        initial_inventory=safe_float(init_inv, 0.0),
-        max_injection_rate=safe_float(max_inj, 300_000),
-        max_withdrawal_rate=safe_float(max_wdw, 500_000),
-        injection_cost=safe_float(inj_cost, 0.01),
-        withdrawal_cost=safe_float(wdw_cost, 0.01),
-    )
+            if schedule.empty:
+                st.error("Infeasible optimization.")
+            else:
+                # compute total injected and withdrawn volumes
+                total_inj = float(schedule["inject"].sum())
+                total_wdw = float(schedule["withdraw"].sum())
 
-    # run optimization : returns intrinsic value + optimal schedule
-    value, schedule = storage.storage_price(df)
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Intrinsic Value ($)",     f"${value:,.0f}")
+                r2.metric("Total Injected (MMBtu)",  f"{total_inj:,.0f}")
+                r3.metric("Total Withdrawn (MMBtu)", f"{total_wdw:,.0f}")
 
-    # if LP failed 
-    if schedule.empty:
-        return "Infeasible", "—", "—", empty_fig()
+                dates = schedule["delivery_date"].astype(str)
+                fig_sched = go.Figure()
 
-    # extract dates for plotting
-    dates = schedule["delivery_date"].astype(str)
+                # plot injections (positive bars)
+                fig_sched.add_trace(go.Bar(x=dates, y=schedule["inject"],
+                                           name="Inject", marker_color="#43a047"))
 
-    fig = go.Figure()
+                # plot withdrawals as negative bars (visual symmetry)
+                fig_sched.add_trace(go.Bar(x=dates, y=-schedule["withdraw"],
+                                           name="Withdraw", marker_color="#e53935"))
 
-    # plot injections (positive bars)
-    fig.add_trace(go.Bar(
-        x=dates,
-        y=schedule["inject"],
-        name="Inject",
-        marker_color="#43a047"
-    ))
+                # plot inventory level as a line (on secondary axis)
+                fig_sched.add_trace(go.Scatter(x=dates, y=schedule["inventory"],
+                                               name="Inventory", yaxis="y2",
+                                               line=dict(color="#ffd54f", width=2)))
 
-    # plot withdrawals as negative bars (visual symmetry)
-    fig.add_trace(go.Bar(
-        x=dates,
-        y=-schedule["withdraw"],
-        name="Withdraw",
-        marker_color="#e53935"
-    ))
-
-    # plot inventory level as a line (on secondary axis)
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=schedule["inventory"],
-        name="Inventory",
-        yaxis="y2",
-        line=dict(color="#ffd54f", width=2)
-    ))
-
-    # layout:
-    fig.update_layout(
-        **PLOT_BASE,
-        barmode="relative",
-        xaxis_title="Delivery Month",
-        yaxis_title="Volume (MMBtu)",
-        yaxis2=dict(
-            title="Inventory",
-            overlaying="y",
-            side="right",
-            gridcolor="rgba(0,0,0,0)"
-        ),
-    )
-
-    # compute total injected and withdrawn volumes
-    total_inj = float(schedule["inject"].sum())
-    total_wdw = float(schedule["withdraw"].sum())
-
-    # return formatted results + chart
-    return (
-        f"${value:,.0f}",
-        f"{total_inj:,.0f}",
-        f"{total_wdw:,.0f}",
-        fig
-    )
-
-server = app.server
-
-if __name__ == "__main__":
-    app.run(debug=True, port=8050)
+                fig_sched.update_layout(
+                    **PLOT_BASE, barmode="relative",
+                    xaxis_title="Delivery Month", yaxis_title="Volume (MMBtu)",
+                    yaxis2=dict(title="Inventory", overlaying="y", side="right",
+                                gridcolor="rgba(0,0,0,0)"),
+                    title="Optimal Injection / Withdrawal Schedule",
+                )
+                st.plotly_chart(fig_sched, use_container_width=True)
