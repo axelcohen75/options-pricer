@@ -150,13 +150,18 @@ with tab_pricer:
 
         fig_payoff = go.Figure()
         fig_payoff.add_trace(go.Scatter(x=s_range, y=expiry_payoff, name="At Expiry",
-                                        line=dict(dash="dot", color="#e0e0e0")))
+                                        line=dict(dash="dot", color="#ff7043", width=2)))
         fig_payoff.add_trace(go.Scatter(x=s_range, y=current_vals, name="Current Value",
-                                        line=dict(color="#2196f3")))
+                                        line=dict(color="#2196f3", width=2)))
         fig_payoff.add_vline(x=K, line=dict(dash="dot"), annotation_text=f"K={K}")
         fig_payoff.add_vline(x=S, line=dict(dash="dot", color="gray"), annotation_text=f"S={S}")
         fig_payoff.update_layout(**PLOT_BASE, xaxis_title="Spot", yaxis_title="P&L",
                                  title="Payoff Diagram")
+        # fix axis ranges: add_vline shapes interfere with Plotly auto-range
+        y_all = list(expiry_payoff) + list(current_vals)
+        y_pad = max((max(y_all) - min(y_all)) * 0.1, 1.0)
+        fig_payoff.update_xaxes(range=[float(s_range[0]), float(s_range[-1])])
+        fig_payoff.update_yaxes(range=[min(y_all) - y_pad, max(y_all) + y_pad])
         st.plotly_chart(fig_payoff, use_container_width=True)
 
         # Greeks curves
@@ -331,6 +336,11 @@ with tab_strategy:
                                         xaxis_title="Spot at Expiry",
                                         yaxis_title="P&L",
                                         title="Payoff Diagram")
+                # fix axis ranges: add_vline/add_hline shapes interfere with Plotly auto-range
+                y_all = np.concatenate([expiry_pnl, current_pnl])
+                y_pad = max((float(y_all.max()) - float(y_all.min())) * 0.1, 1.0)
+                fig_strat.update_xaxes(range=[float(s_range[0]), float(s_range[-1])])
+                fig_strat.update_yaxes(range=[float(y_all.min()) - y_pad, float(y_all.max()) + y_pad])
                 st.plotly_chart(fig_strat, use_container_width=True)
 
                 # Greeks curves
