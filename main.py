@@ -111,7 +111,7 @@ def make_input(label, id_, **kwargs):
     kwargs.pop("size", None)
     return dbc.Row([
         dbc.Col(html.Label(label, className="small text-muted mb-1"), width=12),
-        dbc.Col(dcc.Input(id=id_, type="number", debounce=False, style=_INPUT_STYLE, **kwargs), width=12),
+        dbc.Col(dcc.Input(id=id_, type="number", debounce=True, style=_INPUT_STYLE, **kwargs), width=12),
     ], className="mb-2")
 
 def make_stat_card(label, id_, color="white"):
@@ -237,9 +237,23 @@ def strategy_tab():
                         value="none", size="sm", className="mb-3",
                     ),
 
-                    html.Div(id="st-strikes",
-                             children=html.P("Select a strategy above.", className="text-muted small")),
-                    dcc.Store(id="st-strikes-store", data=[]),
+                    html.P("Select a strategy above.", id="st-no-strat-msg", className="text-muted small"),
+                    dbc.Row([
+                        dbc.Col([html.Label("", id="st-K0-lbl", className="small text-muted mb-1"),
+                                 dcc.Input(id="st-K0", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
+                                id="st-K0-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
+                        dbc.Col([html.Label("", id="st-K1-lbl", className="small text-muted mb-1"),
+                                 dcc.Input(id="st-K1", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
+                                id="st-K1-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([html.Label("", id="st-K2-lbl", className="small text-muted mb-1"),
+                                 dcc.Input(id="st-K2", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
+                                id="st-K2-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
+                        dbc.Col([html.Label("", id="st-K3-lbl", className="small text-muted mb-1"),
+                                 dcc.Input(id="st-K3", type="number", min=0.01, step=0.5, debounce=True, value=100, style=_INPUT_STYLE)],
+                                id="st-K3-col", xs=6, md=6, className="mb-2", style={"display": "none"}),
+                    ]),
 
                     dbc.Button("Price Strategy", id="st-btn-price", color="primary",
                                size="sm", className="w-100 mt-3"),
@@ -422,19 +436,17 @@ def switch_tab(tab):
     Output("sp-out-theta", "children"),
     Output("sp-out-rho",   "children"),
     Output("sp-chart-payoff", "figure"),
-    Input("sp-btn-price", "n_clicks"),
-    State("sp-S",     "value"),
-    State("sp-K",     "value"),
-    State("sp-r",     "value"),
-    State("sp-q",     "value"),
-    State("sp-sigma", "value"),
-    State("sp-T",     "value"),
-    State("sp-type",  "value"),
-    prevent_initial_call=True,
+    Input("sp-S",     "value"),
+    Input("sp-K",     "value"),
+    Input("sp-r",     "value"),
+    Input("sp-q",     "value"),
+    Input("sp-sigma", "value"),
+    Input("sp-T",     "value"),
+    Input("sp-type",  "value"),
 )
 
 # Pricing function
-def price_simple(_, S, K, r_pct, q_pct, sigma_pct, T_days, otype):
+def price_simple(S, K, r_pct, q_pct, sigma_pct, T_days, otype):
 
     # convert all user inputs into clean numerical values
     S     = safe_float(S,100.0)
@@ -506,20 +518,18 @@ def price_simple(_, S, K, r_pct, q_pct, sigma_pct, T_days, otype):
 
 @app.callback(
     Output("sp-chart-greeks", "figure"),
-    Input("sp-btn-price",  "n_clicks"),
     Input("sp-xaxis",      "value"),
     Input("sp-greeks-sel", "value"),
-    State("sp-S",     "value"),
-    State("sp-K",     "value"),
-    State("sp-r",     "value"),
-    State("sp-q",     "value"),
-    State("sp-sigma", "value"),
-    State("sp-T",     "value"),
-    State("sp-type",  "value"),
-    prevent_initial_call=True,
+    Input("sp-S",     "value"),
+    Input("sp-K",     "value"),
+    Input("sp-r",     "value"),
+    Input("sp-q",     "value"),
+    Input("sp-sigma", "value"),
+    Input("sp-T",     "value"),
+    Input("sp-type",  "value"),
 )
 
-def draw_simple_greeks(_, xaxis, selected, S, K, r_pct, q_pct, sigma_pct, T_days, otype):
+def draw_simple_greeks(xaxis, selected, S, K, r_pct, q_pct, sigma_pct, T_days, otype):
 
     # clean and convert all inputs
     S     = safe_float(S,        100.0)
@@ -602,45 +612,31 @@ def draw_simple_greeks(_, xaxis, selected, S, K, r_pct, q_pct, sigma_pct, T_days
 # Strategy callbacks options strategy
 # ---------------------------------------------------------------------------
 
+_SHOW = {"display": "block"}
+_HIDE = {"display": "none"}
+
 @app.callback(
-    Output("st-strikes", "children"),
+    Output("st-no-strat-msg", "style"),
+    Output("st-K0-col", "style"), Output("st-K0-lbl", "children"), Output("st-K0", "value"),
+    Output("st-K1-col", "style"), Output("st-K1-lbl", "children"), Output("st-K1", "value"),
+    Output("st-K2-col", "style"), Output("st-K2-lbl", "children"), Output("st-K2", "value"),
+    Output("st-K3-col", "style"), Output("st-K3-lbl", "children"), Output("st-K3", "value"),
     Input("st-preset", "value"),
     State("st-S", "value"),
 )
-def render_strike_bubbles(strategy, S):
-    if not strategy or strategy == "none" or strategy not in STRATEGY_STRIKE_CONFIG:
-        return html.P("Select a strategy above.", className="text-muted small")
-
+def render_strike_values(strategy, S):
     S = safe_float(S, 100.0)
-    strike_defs = STRATEGY_STRIKE_CONFIG[strategy]
-
-    bubbles = []
-    for i, (label, k_pct) in enumerate(strike_defs):
-        bubbles.append(dbc.Col([
-            dbc.Card(dbc.CardBody([
-                html.P(label, className="small text-muted mb-1 text-center"),
-                dcc.Input(
-                    id={"type": "st-strike", "index": i},
-                    type="number",
-                    value=round(S * k_pct, 1),
-                    min=0.01, step=0.5,
-                    debounce=False,
-                    style={"textAlign": "center", "width": "100%", "background": "transparent",
-                           "color": "white", "border": "1px solid #555", "borderRadius": "4px",
-                           "padding": "4px 8px", "fontSize": "0.875rem"},
-                ),
-            ], className="p-2"))
-        ], xs=6, md=6, className="mb-2"))
-
-    return dbc.Row(bubbles)
-
-
-@app.callback(
-    Output("st-strikes-store", "data"),
-    Input({"type": "st-strike", "index": ALL}, "value"),
-)
-def sync_strikes_store(values):
-    return values
+    if not strategy or strategy == "none" or strategy not in STRATEGY_STRIKE_CONFIG:
+        return _SHOW, _HIDE, "", 100, _HIDE, "", 100, _HIDE, "", 100, _HIDE, "", 100
+    defs = STRATEGY_STRIKE_CONFIG[strategy]
+    result = [_HIDE]
+    for i in range(4):
+        if i < len(defs):
+            lbl, k_pct = defs[i]
+            result += [_SHOW, lbl, round(S * k_pct, 1)]
+        else:
+            result += [_HIDE, "", 100]
+    return tuple(result)
 
 
 @app.callback(
@@ -652,17 +648,19 @@ def sync_strikes_store(values):
     Output("st-out-rho",   "children"),
     Output("st-chart-payoff", "figure"),
     Input("st-btn-price", "n_clicks"),
-    State("st-preset",  "value"),
-    State("st-strikes-store", "data"),
-    State("st-S",     "value"),
-    State("st-r",     "value"),
-    State("st-q",     "value"),
-    State("st-sigma", "value"),
-    State("st-T",     "value"),
+    Input("st-preset",  "value"),
+    Input("st-K0", "value"), Input("st-K1", "value"),
+    Input("st-K2", "value"), Input("st-K3", "value"),
+    Input("st-S",     "value"),
+    Input("st-r",     "value"),
+    Input("st-q",     "value"),
+    Input("st-sigma", "value"),
+    Input("st-T",     "value"),
     prevent_initial_call=True,
 )
 
-def price_strategy(_, strategy, strikes, S, r_pct, q_pct, sigma_pct, T_days):
+def price_strategy(_, strategy, K0, K1, K2, K3, S, r_pct, q_pct, sigma_pct, T_days):
+    strikes = [K0, K1, K2, K3]
 
     # default output if inputs are missing
     blank = "—"
@@ -806,18 +804,20 @@ def price_strategy(_, strategy, strikes, S, r_pct, q_pct, sigma_pct, T_days):
     Input("st-btn-price",   "n_clicks"),
     Input("st-xaxis",       "value"),
     Input("st-greeks-sel",  "value"),
-    State("st-preset",  "value"),
-    State("st-strikes-store", "data"),
-    State("st-S",     "value"),
-    State("st-r",     "value"),
-    State("st-q",     "value"),
-    State("st-sigma", "value"),
-    State("st-T",     "value"),
+    Input("st-preset",  "value"),
+    Input("st-K0", "value"), Input("st-K1", "value"),
+    Input("st-K2", "value"), Input("st-K3", "value"),
+    Input("st-S",     "value"),
+    Input("st-r",     "value"),
+    Input("st-q",     "value"),
+    Input("st-sigma", "value"),
+    Input("st-T",     "value"),
     prevent_initial_call=True,
 )
 
-def draw_strategy_greeks(_, xaxis, selected, strategy, strikes, S, r_pct, q_pct, sigma_pct, T_days):
-    if not strategy or strategy == "none" or not strikes:
+def draw_strategy_greeks(_, xaxis, selected, strategy, K0, K1, K2, K3, S, r_pct, q_pct, sigma_pct, T_days):
+    strikes = [K0, K1, K2, K3]
+    if not strategy or strategy == "none":
         return empty_fig()
 
     S     = safe_float(S, 100.0)
