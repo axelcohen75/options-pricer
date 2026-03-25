@@ -611,12 +611,15 @@ def render_strike_bubbles(strategy, S):
         bubbles.append(dbc.Col([
             dbc.Card(dbc.CardBody([
                 html.P(label, className="small text-muted mb-1 text-center"),
-                dbc.Input(
+                dcc.Input(
                     id={"type": "st-strike", "index": i},
                     type="number",
                     value=round(S * k_pct, 1),
-                    min=0.01, step=0.5, size="sm",
-                    style={"textAlign": "center"},
+                    min=0.01, step=0.5,
+                    debounce=True,
+                    style={"textAlign": "center", "width": "100%", "background": "transparent",
+                           "color": "white", "border": "1px solid #555", "borderRadius": "4px",
+                           "padding": "4px 8px", "fontSize": "0.875rem"},
                 ),
             ], className="p-2"))
         ], xs=6, md=6, className="mb-2"))
